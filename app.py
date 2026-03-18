@@ -136,19 +136,6 @@ for emp in pivot.index:
             "Stock": stock,
             "Meses cobertura": meses
         })
-    except:
-        st.warning(f"Problema con empresa: {emp}")
-        
-    consumos = pivot.loc[emp].values
-    stock = stock_empresas[emp]
-    
-    meses = calcular_meses_stock(stock, consumos)
-    
-    resultados.append({
-        "Empresa": emp,
-        "Stock": stock,
-        "Meses cobertura": meses
-    })
 
 df_resultados = pd.DataFrame(resultados)
 
