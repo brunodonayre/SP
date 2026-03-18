@@ -84,6 +84,16 @@ pivot = future_df.pivot(index="Empresa", columns="Fecha", values="consumo_proj")
 #  implementación de funcion calcular_meses_stock
 # ==================
 
+st.subheader("Stock actual")
+
+stock_actual = st.number_input(
+    "Ingrese el stock actual del ingrediente",
+    min_value=0.0,
+    value=1000.0,
+    step=100.0
+)
+
+
 def calcular_meses_stock(stock_actual, consumos_proj):
     stock = stock_actual
     
