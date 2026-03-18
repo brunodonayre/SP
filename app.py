@@ -124,7 +124,21 @@ def evolucion_stock(stock_actual, consumos_proj):
 # =========================
 resultados = []
 
-for emp in empresas:
+for emp in pivot.index:
+    try:
+        consumos = pivot.loc[emp].values
+        stock = stock_empresas.get(emp, 0)
+        
+        meses = calcular_meses_stock(stock, consumos)
+        
+        resultados.append({
+            "Empresa": emp,
+            "Stock": stock,
+            "Meses cobertura": meses
+        })
+    except:
+        st.warning(f"Problema con empresa: {emp}")
+        
     consumos = pivot.loc[emp].values
     stock = stock_empresas[emp]
     
