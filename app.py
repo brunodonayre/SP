@@ -21,7 +21,7 @@ df.index.name = "Empresa"
 df_editado = st.data_editor(df)
 
 # =========================
-# 2. TRANSFORMACIÓN (CLAVE 🔥)
+# 2. TRANSFORMACIÓN 
 # =========================
 df_reset = df_editado.reset_index()
 
@@ -78,6 +78,24 @@ future_df["consumo_proj"] = model.predict(X_future)
 st.subheader("Resultados")
 
 pivot = future_df.pivot(index="Empresa", columns="Fecha", values="consumo_proj")
+
+
+# ====================
+#  implementación de funcion calcular_meses_stock
+# ==================
+
+def calcular_meses_stock(stock_actual, consumos_proj):
+    stock = stock_actual
+    
+    for i, consumo in enumerate(consumos_proj):
+        stock -= consumo
+        
+        if stock <= 0:
+            return i + 1  # meses que duró
+    
+    return len(consumos_proj)  # no se acabó
+
+# ==================
 
 st.dataframe(pivot)
 
