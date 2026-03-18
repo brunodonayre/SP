@@ -3,10 +3,10 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 
-st.title("📊 Proyección de Consumo - Vitapro Style 🔥")
+st.title("📊 Proyección de Consumo + Cobertura de Stock 🔥")
 
 # =========================
-# 1. INPUT (FORMATO FILAS=EMPRESA, COLUMNAS=FECHAS)
+# 1. INPUT DATOS
 # =========================
 st.subheader("Carga tus datos")
 
@@ -21,20 +21,17 @@ df.index.name = "Empresa"
 df_editado = st.data_editor(df)
 
 # =========================
-# 2. TRANSFORMACIÓN 
+# 2. TRANSFORMACIÓN
 # =========================
 df_reset = df_editado.reset_index()
 
 df_long = df_reset.melt(id_vars="Empresa", var_name="Fecha", value_name="consumo")
 
-# convertir fecha
 df_long["Fecha"] = pd.to_datetime(df_long["Fecha"])
 
-# features
+# Features
 df_long["mes"] = df_long["Fecha"].dt.month
 df_long["t"] = np.arange(len(df_long))
-
-# encode empresa
 df_long["empresa_id"] = df_long["Empresa"].astype("category").cat.codes
 
 # =========================
@@ -43,7 +40,7 @@ df_long["empresa_id"] = df_long["Empresa"].astype("category").cat.codes
 X = df_long[["mes", "t", "empresa_id"]]
 y = df_long["consumo"]
 
-model = RandomForestRegressor()
+model = RandomForestRegressor(n_estimators=100, random_state=42)
 model.fit(X, y)
 
 # =========================
@@ -73,27 +70,34 @@ X_future = future_df[["mes", "t", "empresa_id"]]
 future_df["consumo_proj"] = model.predict(X_future)
 
 # =========================
-# 5. RESULTADOS
+# 5. RESULTADOS CONSUMO
 # =========================
-st.subheader("Resultados")
+st.subheader("Resultados de Consumo")
 
 pivot = future_df.pivot(index="Empresa", columns="Fecha", values="consumo_proj")
 
+st.dataframe(pivot)
 
-# ====================
-#  implementación de funcion calcular_meses_stock
-# ==================
+st.line_chart(future_df.pivot(index="Fecha", columns="Empresa", values="consumo_proj"))
 
-st.subheader("Stock actual")
+# =========================
+# 6. STOCK
+# =========================
+st.subheader("Stock del Ingrediente (Total para las 5 empresas)")
 
 stock_actual = st.number_input(
-    "Ingrese el stock actual del ingrediente",
+    "Ingrese el stock actual total",
     min_value=0.0,
     value=1000.0,
     step=100.0
 )
 
+# Consumo total mensual (suma de empresas)
+consumos_proj = pivot.sum(axis=0).values
 
+# =========================
+# 7. FUNCIONES
+# =========================
 def calcular_meses_stock(stock_actual, consumos_proj):
     stock = stock_actual
     
@@ -101,10 +105,9 @@ def calcular_meses_stock(stock_actual, consumos_proj):
         stock -= consumo
         
         if stock <= 0:
-            return i + 1  # meses que duró
+            return i + 1
     
-    return len(consumos_proj)  # no se acabó
-
+    return len(consumos_proj)
 
 def evolucion_stock(stock_actual, consumos_proj):
     stock = stock_actual
@@ -116,6 +119,9 @@ def evolucion_stock(stock_actual, consumos_proj):
     
     return evolucion
 
+# =========================
+# 8. CÁLCULOS
+# =========================
 stock_evol = evolucion_stock(stock_actual, consumos_proj)
 
 df_stock = pd.DataFrame({
@@ -123,19 +129,23 @@ df_stock = pd.DataFrame({
     "Stock": stock_evol
 })
 
+# =========================
+# 9. VISUALIZACIÓN STOCK
+# =========================
+st.subheader("Evolución del Stock")
+
 st.line_chart(df_stock.set_index("Fecha"))
-
-# ==================
-
-st.dataframe(pivot)
-
-st.line_chart(future_df.pivot(index="Fecha", columns="Empresa", values="consumo_proj"))
-
-# =================
-
-consumos_proj = pivot.sum(axis=0).values  # total mensual
 
 meses = calcular_meses_stock(stock_actual, consumos_proj)
 
 st.metric("Meses de cobertura", meses)
 
+# =========================
+# 10. ALERTAS
+# =========================
+if meses <= 3:
+    st.error("⚠️ Riesgo alto: stock crítico")
+elif meses <= 6:
+    st.warning("⚠️ Atención: stock moderado")
+else:
+    st.success("✅ Stock saludable")
