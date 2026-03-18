@@ -100,3 +100,12 @@ def calcular_meses_stock(stock_actual, consumos_proj):
 st.dataframe(pivot)
 
 st.line_chart(future_df.pivot(index="Fecha", columns="Empresa", values="consumo_proj"))
+
+# =================
+
+consumos_proj = pivot.sum(axis=0).values  # total mensual
+
+meses = calcular_meses_stock(stock_actual, consumos_proj)
+
+st.metric("Meses de cobertura", meses)
+
