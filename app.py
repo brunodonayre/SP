@@ -105,6 +105,26 @@ def calcular_meses_stock(stock_actual, consumos_proj):
     
     return len(consumos_proj)  # no se acabó
 
+
+def evolucion_stock(stock_actual, consumos_proj):
+    stock = stock_actual
+    evolucion = []
+    
+    for consumo in consumos_proj:
+        stock -= consumo
+        evolucion.append(stock)
+    
+    return evolucion
+
+stock_evol = evolucion_stock(stock_actual, consumos_proj)
+
+df_stock = pd.DataFrame({
+    "Fecha": pivot.columns,
+    "Stock": stock_evol
+})
+
+st.line_chart(df_stock.set_index("Fecha"))
+
 # ==================
 
 st.dataframe(pivot)
