@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 
-st.title("📊 Proyección de Consumo + Cobertura de Stock 🔥")
+st.title("📊 Proyección de Consumo + Cobertura por Empresa 🔥")
 
 # =========================
 # 1. INPUT DATOS
@@ -29,7 +29,6 @@ df_long = df_reset.melt(id_vars="Empresa", var_name="Fecha", value_name="consumo
 
 df_long["Fecha"] = pd.to_datetime(df_long["Fecha"])
 
-# Features
 df_long["mes"] = df_long["Fecha"].dt.month
 df_long["t"] = np.arange(len(df_long))
 df_long["empresa_id"] = df_long["Empresa"].astype("category").cat.codes
@@ -81,19 +80,20 @@ st.dataframe(pivot)
 st.line_chart(future_df.pivot(index="Fecha", columns="Empresa", values="consumo_proj"))
 
 # =========================
-# 6. STOCK
+# 6. STOCK POR EMPRESA
 # =========================
-st.subheader("Stock del Ingrediente (Total para las 5 empresas)")
+st.subheader("Stock actual por empresa")
 
-stock_actual = st.number_input(
-    "Ingrese el stock actual total",
-    min_value=0.0,
-    value=1000.0,
-    step=100.0
-)
+stock_empresas = {}
 
-# Consumo total mensual (suma de empresas)
-consumos_proj = pivot.sum(axis=0).values
+for emp in empresas:
+    stock_empresas[emp] = st.number_input(
+        f"Stock actual - {emp}",
+        min_value=0.0,
+        value=1000.0,
+        step=100.0,
+        key=emp
+    )
 
 # =========================
 # 7. FUNCIONES
@@ -120,32 +120,60 @@ def evolucion_stock(stock_actual, consumos_proj):
     return evolucion
 
 # =========================
-# 8. CÁLCULOS
+# 8. COBERTURA POR EMPRESA
 # =========================
-stock_evol = evolucion_stock(stock_actual, consumos_proj)
+resultados = []
+
+for emp in empresas:
+    consumos = pivot.loc[emp].values
+    stock = stock_empresas[emp]
+    
+    meses = calcular_meses_stock(stock, consumos)
+    
+    resultados.append({
+        "Empresa": emp,
+        "Stock": stock,
+        "Meses cobertura": meses
+    })
+
+df_resultados = pd.DataFrame(resultados)
+
+st.subheader("Cobertura por empresa")
+
+st.dataframe(df_resultados)
+
+# =========================
+# 9. STOCK TOTAL (OPCIONAL)
+# =========================
+stock_total = sum(stock_empresas.values())
+consumo_total = pivot.sum(axis=0).values
+
+meses_total = calcular_meses_stock(stock_total, consumo_total)
+
+st.subheader("Cobertura total")
+
+st.metric("Meses de cobertura total", meses_total)
+
+# =========================
+# 10. EVOLUCIÓN STOCK TOTAL
+# =========================
+stock_evol = evolucion_stock(stock_total, consumo_total)
 
 df_stock = pd.DataFrame({
     "Fecha": pivot.columns,
-    "Stock": stock_evol
+    "Stock Total": stock_evol
 })
 
-# =========================
-# 9. VISUALIZACIÓN STOCK
-# =========================
-st.subheader("Evolución del Stock")
+st.subheader("Evolución del Stock Total")
 
 st.line_chart(df_stock.set_index("Fecha"))
 
-meses = calcular_meses_stock(stock_actual, consumos_proj)
-
-st.metric("Meses de cobertura", meses)
-
 # =========================
-# 10. ALERTAS
+# 11. ALERTAS
 # =========================
-if meses <= 3:
+if meses_total <= 3:
     st.error("⚠️ Riesgo alto: stock crítico")
-elif meses <= 6:
+elif meses_total <= 6:
     st.warning("⚠️ Atención: stock moderado")
 else:
     st.success("✅ Stock saludable")
