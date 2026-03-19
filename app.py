@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
 
-st.title("📊 Proyección de Consumo + Cobertura por Empresa 🔥")
+from sklearn.ensemble import RandomForestRegressor
+from xgboost import XGBRegressor
+
+st.title("📊 Forecast + Lags + ML 🔥")
 
 # =========================
-# 1. INPUT DATOS (FIX CLAVE)
+# 1. INPUT
 # =========================
 st.subheader("Carga tus datos")
 
@@ -15,7 +17,6 @@ fechas_str = [d.strftime("%Y-%m") for d in fechas]
 
 empresas = ["Biomar", "Cargill", "Haid", "Inbalnor", "Skretting"]
 
-# 🔥 FIX: DataFrame correcto
 df = pd.DataFrame(0, index=empresas, columns=fechas_str)
 df.index.name = "Empresa"
 
@@ -24,54 +25,87 @@ df_editado = st.data_editor(df)
 # =========================
 # 2. TRANSFORMACIÓN
 # =========================
-df_reset = df_editado.reset_index()
+df_long = df_editado.reset_index().melt(
+    id_vars="Empresa",
+    var_name="Fecha",
+    value_name="consumo"
+)
 
-df_long = df_reset.melt(id_vars="Empresa", var_name="Fecha", value_name="consumo")
 df_long["Fecha"] = pd.to_datetime(df_long["Fecha"])
-
-# Validación
-if df_long["consumo"].sum() == 0:
-    st.warning("⚠️ Ingresa datos antes de proyectar")
-    st.stop()
-
 df_long = df_long.sort_values(["Empresa", "Fecha"])
+
+if df_long["consumo"].sum() == 0:
+    st.warning("Ingresa datos")
+    st.stop()
 
 df_long["mes"] = df_long["Fecha"].dt.month
 df_long["t"] = df_long.groupby("Empresa").cumcount()
 
-# Estacionalidad
+# estacionalidad
 df_long["mes_sin"] = np.sin(2 * np.pi * df_long["mes"] / 12)
 df_long["mes_cos"] = np.cos(2 * np.pi * df_long["mes"] / 12)
 
 # =========================
-# 3. MODELOS POR EMPRESA
+# 🔥 LAGS
+# =========================
+df_long["lag1"] = df_long.groupby("Empresa")["consumo"].shift(1)
+df_long["lag2"] = df_long.groupby("Empresa")["consumo"].shift(2)
+
+df_long = df_long.dropna()
+
+# =========================
+# 3. SELECCIÓN MODELO
+# =========================
+modelo_tipo = st.selectbox(
+    "Modelo",
+    ["Random Forest", "XGBoost"]
+)
+
+# =========================
+# 4. ENTRENAMIENTO
 # =========================
 modelos = {}
+
+features = ["t", "mes_sin", "mes_cos", "lag1", "lag2"]
 
 for emp in df_long["Empresa"].unique():
     df_emp = df_long[df_long["Empresa"] == emp]
 
-    X_emp = df_emp[["t", "mes_sin", "mes_cos"]]
-    y_emp = df_emp["consumo"]
+    X = df_emp[features]
+    y = df_emp["consumo"]
 
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_emp, y_emp)
+    if modelo_tipo == "Random Forest":
+        model = RandomForestRegressor(n_estimators=200, random_state=42)
+    else:
+        model = XGBRegressor(
+            n_estimators=200,
+            learning_rate=0.05,
+            max_depth=4,
+            random_state=42
+        )
 
+    model.fit(X, y)
     modelos[emp] = model
 
 # =========================
-# 4. PROYECCIÓN
+# 5. PROYECCIÓN CON LAGS
 # =========================
 st.subheader("Proyección")
 
-horizonte = st.slider("Meses a proyectar", 1, 12, 6)
+horizonte = st.slider("Meses a proyectar", 1, 24, 12)
 
 future = []
 
 for emp in df_long["Empresa"].unique():
     df_emp = df_long[df_long["Empresa"] == emp]
-    last_t = df_emp["t"].max()
-    last_fecha = df_emp["Fecha"].max()
+
+    last_row = df_emp.iloc[-1]
+
+    last_t = last_row["t"]
+    last_fecha = last_row["Fecha"]
+
+    lag1 = last_row["consumo"]
+    lag2 = df_emp.iloc[-2]["consumo"]
 
     future_dates = pd.date_range(last_fecha, periods=horizonte+1, freq="MS")[1:]
 
@@ -82,35 +116,32 @@ for emp in df_long["Empresa"].unique():
         mes_sin = np.sin(2 * np.pi * mes / 12)
         mes_cos = np.cos(2 * np.pi * mes / 12)
 
-        future.append({
-            "Fecha": fecha,
-            "Empresa": emp,
+        X_pred = pd.DataFrame([{
             "t": t_future,
             "mes_sin": mes_sin,
-            "mes_cos": mes_cos
+            "mes_cos": mes_cos,
+            "lag1": lag1,
+            "lag2": lag2
+        }])
+
+        pred = modelos[emp].predict(X_pred)[0]
+        pred = max(0, pred)
+
+        future.append({
+            "Empresa": emp,
+            "Fecha": fecha,
+            "consumo_proj": pred
         })
+
+        # 🔥 actualizar lags dinámicamente
+        lag2 = lag1
+        lag1 = pred
 
 future_df = pd.DataFrame(future)
 
-# Predicción segura
-future_df["consumo_proj"] = 0.0
-
-for emp in future_df["Empresa"].unique():
-    mask = future_df["Empresa"] == emp
-    X_future = future_df.loc[mask, ["t", "mes_sin", "mes_cos"]]
-
-    pred = modelos[emp].predict(X_future)
-
-    pred = np.nan_to_num(pred)
-    pred = np.clip(pred, 0, None)
-
-    future_df.loc[mask, "consumo_proj"] = pred
-
 # =========================
-# 5. RESULTADOS CONSUMO
+# 6. RESULTADOS
 # =========================
-st.subheader("Resultados de Consumo")
-
 pivot = future_df.pivot(
     index="Empresa",
     columns="Fecha",
@@ -119,134 +150,53 @@ pivot = future_df.pivot(
 
 st.dataframe(pivot)
 
-# Gráfico
-df_plot_hist = df_long[["Fecha", "Empresa", "consumo"]].rename(columns={"consumo": "valor"})
-df_plot_fut = future_df[["Fecha", "Empresa", "consumo_proj"]].rename(columns={"consumo_proj": "valor"})
-
-df_plot = pd.concat([df_plot_hist, df_plot_fut])
-
-st.line_chart(df_plot.pivot(index="Fecha", columns="Empresa", values="valor"))
+st.line_chart(
+    future_df.pivot(index="Fecha", columns="Empresa", values="consumo_proj")
+)
 
 # =========================
-# 6. STOCK POR EMPRESA (FIX)
+# 7. STOCK
 # =========================
-st.subheader("Stock actual por empresa")
+st.subheader("Stock")
 
 stock_empresas = {}
 
 for emp in df_long["Empresa"].unique():
     stock_empresas[emp] = st.number_input(
-        f"Stock actual - {emp}",
-        min_value=0.0,
-        value=1000.0,
-        step=100.0,
+        f"Stock - {emp}",
+        value=100000.0,
         key=f"stock_{emp}"
     )
 
 # =========================
-# 7. FUNCIONES
+# 8. COBERTURA
 # =========================
-def calcular_meses_stock(stock_actual, consumos_proj):
-    consumos_proj = np.array(consumos_proj)
-    consumos_proj = np.nan_to_num(consumos_proj)
-    consumos_proj = np.clip(consumos_proj, 0, None)
+def cobertura(stock, consumos):
+    stock_actual = stock
 
-    stock = stock_actual
-
-    for i, consumo in enumerate(consumos_proj):
-        stock -= consumo
-        if stock <= 0:
+    for i, c in enumerate(consumos):
+        stock_actual -= c
+        if stock_actual <= 0:
             return i + 1
 
-    return len(consumos_proj)
+    return len(consumos)
 
+def cobertura_prom(stock, consumos):
+    prom = np.mean(consumos)
+    return stock / prom if prom > 0 else 0
 
-def meses_por_promedio(stock_actual, consumos_proj):
-    consumos_proj = np.array(consumos_proj)
-    consumos_proj = np.nan_to_num(consumos_proj)
-    consumos_proj = np.clip(consumos_proj, 0, None)
-
-    promedio = np.mean(consumos_proj)
-
-    if promedio <= 0:
-        return 0
-
-    return stock_actual / promedio
-
-
-def evolucion_stock(stock_actual, consumos_proj):
-    consumos_proj = np.array(consumos_proj)
-    consumos_proj = np.nan_to_num(consumos_proj)
-    consumos_proj = np.clip(consumos_proj, 0, None)
-
-    stock = stock_actual
-    evolucion = []
-
-    for consumo in consumos_proj:
-        stock -= consumo
-        evolucion.append(stock)
-
-    return evolucion
-
-# =========================
-# 8. COBERTURA POR EMPRESA
-# =========================
 resultados = []
 
 for emp in pivot.index:
     consumos = pivot.loc[emp].values
     stock = stock_empresas.get(emp, 0)
 
-    meses_real = calcular_meses_stock(stock, consumos)
-    meses_prom = meses_por_promedio(stock, consumos)
-
     resultados.append({
         "Empresa": emp,
         "Stock": stock,
-        "Meses cobertura (real)": meses_real,
-        "Meses cobertura (promedio)": round(meses_prom, 2)
+        "Meses real": cobertura(stock, consumos),
+        "Meses promedio": round(cobertura_prom(stock, consumos), 2)
     })
 
-df_resultados = pd.DataFrame(resultados)
-
-st.subheader("Cobertura por empresa")
-st.dataframe(df_resultados)
-
-# =========================
-# 9. STOCK TOTAL
-# =========================
-stock_total = sum(stock_empresas.values())
-consumo_total = pivot.sum(axis=0).values
-
-meses_total_real = calcular_meses_stock(stock_total, consumo_total)
-meses_total_prom = meses_por_promedio(stock_total, consumo_total)
-
-st.subheader("Cobertura total")
-
-st.metric("Meses cobertura total (real)", meses_total_real)
-st.metric("Meses cobertura total (promedio)", round(meses_total_prom, 2))
-
-# =========================
-# 10. EVOLUCIÓN STOCK TOTAL
-# =========================
-stock_evol = evolucion_stock(stock_total, consumo_total)
-
-df_stock = pd.DataFrame({
-    "Fecha": pivot.columns,
-    "Stock Total": stock_evol
-})
-
-st.subheader("Evolución del Stock Total")
-st.line_chart(df_stock.set_index("Fecha"))
-
-# =========================
-# 11. ALERTAS
-# =========================
-if len(stock_evol) > 0 and min(stock_evol) < 0:
-    st.error("⚠️ Quiebre de stock en el horizonte")
-elif meses_total_real <= 3:
-    st.error("⚠️ Riesgo alto: stock crítico")
-elif meses_total_real <= 6:
-    st.warning("⚠️ Atención: stock moderado")
-else:
-    st.success("✅ Stock saludable")
+st.subheader("Cobertura")
+st.dataframe(pd.DataFrame(resultados))
