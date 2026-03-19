@@ -91,7 +91,7 @@ for emp in df_long["Empresa"].unique():
 
 future_df = pd.DataFrame(future)
 
-# Predicción por empresa
+# Predicción
 future_df["consumo_proj"] = 0.0
 
 for emp in future_df["Empresa"].unique():
@@ -108,7 +108,7 @@ pivot = future_df.pivot(index="Empresa", columns="Fecha", values="consumo_proj")
 
 st.dataframe(pivot)
 
-# Gráfico combinado (histórico + forecast)
+# Gráfico combinado
 df_plot_hist = df_long[["Fecha", "Empresa", "consumo"]].rename(columns={"consumo": "valor"})
 df_plot_fut = future_df[["Fecha", "Empresa", "consumo_proj"]].rename(columns={"consumo_proj": "valor"})
 
@@ -146,6 +146,14 @@ def calcular_meses_stock(stock_actual, consumos_proj):
     
     return len(consumos_proj)
 
+def meses_por_promedio(stock_actual, consumos_proj):
+    promedio = np.mean(consumos_proj)
+    
+    if promedio == 0:
+        return 0
+    
+    return stock_actual / promedio
+
 def evolucion_stock(stock_actual, consumos_proj):
     stock = stock_actual
     evolucion = []
@@ -165,12 +173,14 @@ for emp in pivot.index:
     consumos = pivot.loc[emp].values
     stock = stock_empresas.get(emp, 0)
     
-    meses = calcular_meses_stock(stock, consumos)
+    meses_real = calcular_meses_stock(stock, consumos)
+    meses_prom = meses_por_promedio(stock, consumos)
     
     resultados.append({
         "Empresa": emp,
         "Stock": stock,
-        "Meses cobertura": meses
+        "Meses cobertura (real)": meses_real,
+        "Meses cobertura (promedio)": round(meses_prom, 2)
     })
 
 df_resultados = pd.DataFrame(resultados)
@@ -184,10 +194,13 @@ st.dataframe(df_resultados)
 stock_total = sum(stock_empresas.values())
 consumo_total = pivot.sum(axis=0).values
 
-meses_total = calcular_meses_stock(stock_total, consumo_total)
+meses_total_real = calcular_meses_stock(stock_total, consumo_total)
+meses_total_prom = meses_por_promedio(stock_total, consumo_total)
 
 st.subheader("Cobertura total")
-st.metric("Meses de cobertura total", meses_total)
+
+st.metric("Meses cobertura total (real)", meses_total_real)
+st.metric("Meses cobertura total (promedio)", round(meses_total_prom, 2))
 
 # =========================
 # 10. EVOLUCIÓN STOCK TOTAL
@@ -203,13 +216,13 @@ st.subheader("Evolución del Stock Total")
 st.line_chart(df_stock.set_index("Fecha"))
 
 # =========================
-# 11. ALERTAS INTELIGENTES
+# 11. ALERTAS
 # =========================
 if min(stock_evol) < 0:
     st.error("⚠️ Quiebre de stock en el horizonte")
-elif meses_total <= 3:
+elif meses_total_real <= 3:
     st.error("⚠️ Riesgo alto: stock crítico")
-elif meses_total <= 6:
+elif meses_total_real <= 6:
     st.warning("⚠️ Atención: stock moderado")
 else:
     st.success("✅ Stock saludable")
