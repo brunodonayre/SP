@@ -6,18 +6,18 @@ from sklearn.ensemble import RandomForestRegressor
 st.title("📊 Proyección de Consumo + Cobertura por Empresa 🔥")
 
 # =========================
-# 1. INPUT DATOS
+# 1. INPUT DATOS (FIX CLAVE)
 # =========================
 st.subheader("Carga tus datos")
 
 fechas = pd.date_range("2024-01-01", "2026-02-01", freq="MS")
 fechas_str = [d.strftime("%Y-%m") for d in fechas]
 
-# Data editable
-df = pd.DataFrame(0, columns=fechas_str)
-df["Empresa"] = ["Biomar", "Cargill", "Haid", "Inbalnor", "Skretting"]
+empresas = ["Biomar", "Cargill", "Haid", "Inbalnor", "Skretting"]
 
-df = df.set_index("Empresa")
+# 🔥 FIX: DataFrame correcto
+df = pd.DataFrame(0, index=empresas, columns=fechas_str)
+df.index.name = "Empresa"
 
 df_editado = st.data_editor(df)
 
@@ -92,7 +92,7 @@ for emp in df_long["Empresa"].unique():
 
 future_df = pd.DataFrame(future)
 
-# Predicción limpia
+# Predicción segura
 future_df["consumo_proj"] = 0.0
 
 for emp in future_df["Empresa"].unique():
@@ -128,15 +128,13 @@ df_plot = pd.concat([df_plot_hist, df_plot_fut])
 st.line_chart(df_plot.pivot(index="Fecha", columns="Empresa", values="valor"))
 
 # =========================
-# 6. STOCK POR EMPRESA (FIX CLAVE)
+# 6. STOCK POR EMPRESA (FIX)
 # =========================
 st.subheader("Stock actual por empresa")
 
-empresas_reales = df_long["Empresa"].unique()
-
 stock_empresas = {}
 
-for emp in empresas_reales:
+for emp in df_long["Empresa"].unique():
     stock_empresas[emp] = st.number_input(
         f"Stock actual - {emp}",
         min_value=0.0,
