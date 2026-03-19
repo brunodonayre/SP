@@ -49,13 +49,16 @@ modelos = {}
 
 for emp in df_long["Empresa"].unique():
     df_emp = df_long[df_long["Empresa"] == emp]
-    
+
+    if len(df_emp) < 6:
+        st.warning(f"⚠️ Pocos datos para {emp}")
+
     X_emp = df_emp[["t", "mes_sin", "mes_cos"]]
     y_emp = df_emp["consumo"]
-    
+
     model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X_emp, y_emp)
-    
+
     modelos[emp] = model
 
 # =========================
@@ -71,16 +74,16 @@ for emp in df_long["Empresa"].unique():
     df_emp = df_long[df_long["Empresa"] == emp]
     last_t = df_emp["t"].max()
     last_fecha = df_emp["Fecha"].max()
-    
+
     future_dates = pd.date_range(last_fecha, periods=horizonte+1, freq="MS")[1:]
-    
+
     for i, fecha in enumerate(future_dates):
         t_future = last_t + i + 1
-        
+
         mes = fecha.month
         mes_sin = np.sin(2 * np.pi * mes / 12)
         mes_cos = np.cos(2 * np.pi * mes / 12)
-        
+
         future.append({
             "Fecha": fecha,
             "Empresa": emp,
@@ -91,20 +94,31 @@ for emp in df_long["Empresa"].unique():
 
 future_df = pd.DataFrame(future)
 
-# Predicción
+# Predicción segura
 future_df["consumo_proj"] = 0.0
 
 for emp in future_df["Empresa"].unique():
     mask = future_df["Empresa"] == emp
     X_future = future_df.loc[mask, ["t", "mes_sin", "mes_cos"]]
-    future_df.loc[mask, "consumo_proj"] = modelos[emp].predict(X_future)
+
+    pred = modelos[emp].predict(X_future)
+
+    # limpieza
+    pred = np.nan_to_num(pred)
+    pred = np.clip(pred, 0, None)
+
+    future_df.loc[mask, "consumo_proj"] = pred
 
 # =========================
 # 5. RESULTADOS CONSUMO
 # =========================
 st.subheader("Resultados de Consumo")
 
-pivot = future_df.pivot(index="Empresa", columns="Fecha", values="consumo_proj")
+pivot = future_df.pivot(
+    index="Empresa",
+    columns="Fecha",
+    values="consumo_proj"
+).fillna(0)
 
 st.dataframe(pivot)
 
@@ -133,35 +147,52 @@ for emp in empresas:
     )
 
 # =========================
-# 7. FUNCIONES
+# 7. FUNCIONES ROBUSTAS
 # =========================
 def calcular_meses_stock(stock_actual, consumos_proj):
     stock = stock_actual
-    
+
+    consumos_proj = np.array(consumos_proj)
+    consumos_proj = np.nan_to_num(consumos_proj)
+    consumos_proj = np.clip(consumos_proj, 0, None)
+
+    if len(consumos_proj) == 0:
+        return 0
+
     for i, consumo in enumerate(consumos_proj):
         stock -= consumo
-        
+
         if stock <= 0:
             return i + 1
-    
+
     return len(consumos_proj)
 
+
 def meses_por_promedio(stock_actual, consumos_proj):
+    consumos_proj = np.array(consumos_proj)
+    consumos_proj = np.nan_to_num(consumos_proj)
+    consumos_proj = np.clip(consumos_proj, 0, None)
+
     promedio = np.mean(consumos_proj)
-    
-    if promedio == 0:
+
+    if promedio <= 0:
         return 0
-    
+
     return stock_actual / promedio
 
+
 def evolucion_stock(stock_actual, consumos_proj):
+    consumos_proj = np.array(consumos_proj)
+    consumos_proj = np.nan_to_num(consumos_proj)
+    consumos_proj = np.clip(consumos_proj, 0, None)
+
     stock = stock_actual
     evolucion = []
-    
+
     for consumo in consumos_proj:
         stock -= consumo
         evolucion.append(stock)
-    
+
     return evolucion
 
 # =========================
@@ -172,10 +203,10 @@ resultados = []
 for emp in pivot.index:
     consumos = pivot.loc[emp].values
     stock = stock_empresas.get(emp, 0)
-    
+
     meses_real = calcular_meses_stock(stock, consumos)
     meses_prom = meses_por_promedio(stock, consumos)
-    
+
     resultados.append({
         "Empresa": emp,
         "Stock": stock,
@@ -218,7 +249,7 @@ st.line_chart(df_stock.set_index("Fecha"))
 # =========================
 # 11. ALERTAS
 # =========================
-if min(stock_evol) < 0:
+if len(stock_evol) > 0 and min(stock_evol) < 0:
     st.error("⚠️ Quiebre de stock en el horizonte")
 elif meses_total_real <= 3:
     st.error("⚠️ Riesgo alto: stock crítico")
