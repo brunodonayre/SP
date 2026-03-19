@@ -13,10 +13,11 @@ st.subheader("Carga tus datos")
 fechas = pd.date_range("2024-01-01", "2026-02-01", freq="MS")
 fechas_str = [d.strftime("%Y-%m") for d in fechas]
 
-empresas = ["Empresa1", "Empresa2", "Empresa3", "Empresa4", "Empresa5"]
+# Data editable
+df = pd.DataFrame(0, columns=fechas_str)
+df["Empresa"] = ["Biomar", "Cargill", "Haid", "Inbalnor", "Skretting"]
 
-df = pd.DataFrame(0, index=empresas, columns=fechas_str)
-df.index.name = "Empresa"
+df = df.set_index("Empresa")
 
 df_editado = st.data_editor(df)
 
@@ -49,9 +50,6 @@ modelos = {}
 
 for emp in df_long["Empresa"].unique():
     df_emp = df_long[df_long["Empresa"] == emp]
-
-    if len(df_emp) < 6:
-        st.warning(f"⚠️ Pocos datos para {emp}")
 
     X_emp = df_emp[["t", "mes_sin", "mes_cos"]]
     y_emp = df_emp["consumo"]
@@ -94,7 +92,7 @@ for emp in df_long["Empresa"].unique():
 
 future_df = pd.DataFrame(future)
 
-# Predicción segura
+# Predicción limpia
 future_df["consumo_proj"] = 0.0
 
 for emp in future_df["Empresa"].unique():
@@ -103,7 +101,6 @@ for emp in future_df["Empresa"].unique():
 
     pred = modelos[emp].predict(X_future)
 
-    # limpieza
     pred = np.nan_to_num(pred)
     pred = np.clip(pred, 0, None)
 
@@ -122,7 +119,7 @@ pivot = future_df.pivot(
 
 st.dataframe(pivot)
 
-# Gráfico combinado
+# Gráfico
 df_plot_hist = df_long[["Fecha", "Empresa", "consumo"]].rename(columns={"consumo": "valor"})
 df_plot_fut = future_df[["Fecha", "Empresa", "consumo_proj"]].rename(columns={"consumo_proj": "valor"})
 
@@ -131,37 +128,35 @@ df_plot = pd.concat([df_plot_hist, df_plot_fut])
 st.line_chart(df_plot.pivot(index="Fecha", columns="Empresa", values="valor"))
 
 # =========================
-# 6. STOCK POR EMPRESA
+# 6. STOCK POR EMPRESA (FIX CLAVE)
 # =========================
 st.subheader("Stock actual por empresa")
 
+empresas_reales = df_long["Empresa"].unique()
+
 stock_empresas = {}
 
-for emp in empresas:
+for emp in empresas_reales:
     stock_empresas[emp] = st.number_input(
         f"Stock actual - {emp}",
         min_value=0.0,
         value=1000.0,
         step=100.0,
-        key=emp
+        key=f"stock_{emp}"
     )
 
 # =========================
-# 7. FUNCIONES ROBUSTAS
+# 7. FUNCIONES
 # =========================
 def calcular_meses_stock(stock_actual, consumos_proj):
-    stock = stock_actual
-
     consumos_proj = np.array(consumos_proj)
     consumos_proj = np.nan_to_num(consumos_proj)
     consumos_proj = np.clip(consumos_proj, 0, None)
 
-    if len(consumos_proj) == 0:
-        return 0
+    stock = stock_actual
 
     for i, consumo in enumerate(consumos_proj):
         stock -= consumo
-
         if stock <= 0:
             return i + 1
 
